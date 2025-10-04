@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UniqueHub - TikTok Style Feed</title>
+<style>
+body, html { margin:0; padding:0; height:100%; overflow-x:hidden; background:#111; font-family:sans-serif; color:#fff; }
+#feed { display:flex; flex-direction:column; scroll-snap-type:y mandatory; overflow-y:scroll; height:100vh; scroll-behavior:smooth;}
+.post { scroll-snap-align:start; position:relative; min-height:100vh; display:flex; flex-direction:column; justify-content:flex-end; padding:20px; background:#111; transition: transform 0.3s ease;}
+.post img { width:100%; height:auto; border-radius:12px; margin-bottom:10px; }
+.post-text { font-size:1.5rem; margin-bottom:10px; color:#ffcc00; text-shadow:0 0 8px #000; }
+.reactions { display:flex; gap:15px; margin-bottom:20px; }
+.reactions span { cursor:pointer; font-size:2.5rem; user-select:none; }
+.emoji-drop { position:absolute; top:-50px; font-size:2rem; animation: fall linear forwards; pointer-events:none; z-index:9999; }
+@keyframes fall { to { transform: translateY(100vh); opacity:0; } }
+#postForm { position:fixed; top:10px; left:50%; transform:translateX(-50%); background:#222; padding:15px; border-radius:12px; width:90%; z-index:1000; display:flex; flex-direction:column; gap:10px; }
+#postForm textarea { width:100%; padding:10px; border-radius:8px; border:none; resize:none; height:80px; background:#333; color:#fff; }
+#postForm input[type=file] { color:#fff; }
+#postForm button { padding:10px; border:none; border-radius:8px; background:#ff0055; color:#fff; cursor:pointer; font-size:1rem; }
+</style>
+</head>
+<body>
+
+<!-- Background Music -->
+<audio id="bgMusic" src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" loop autoplay></audio>
+
+<!-- Post Form -->
+<div id="postForm">
+  <textarea id="postText" placeholder="Write something..."></textarea>
+  <input type="file" id="postImage" accept="image/*">
+  <button onclick="addPost()">Post</button>
+</div>
+
+<!-- Feed -->
+<div id="feed"></div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
+import { getFirestore, collection, addDoc, onSnapshot, updateDoc, doc, increment, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
+import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-storage.js";
+
+// Firebase Config
+const firebaseConfig = {
+  apiKey: "AIzaSyDszA40nEAcBp7mN_baz6z0-ZHEpH6gUTc",
+  authDomain: "uniquehub-cd349.firebaseapp.com",
+  projectId: "uniquehub-cd349",
+  storageBucket: "uniquehub-cd349.appspot.com",
+  messagingSenderId: "165166981645",
+  appId: "1:165166981645:web:b63f8985d611f884716b44",
+  measurementId: "G-G9D3QLSNTH"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const storage = getStorage(app);
+const feed = document.getElementById("feed");
+
+// Sounds per emoji
+const sounds = {
+  "🪵": new Audio("https://www.myinstants.com/media/sounds/slap.mp3"),
+  "❤️": new Audio("https://www.myinstants.com/media/sounds/cartoon-kiss.mp3"),
+  "💔": new Audio("https://www.myinstants.com/media/sounds/fail-trombone.mp3"),
+  "🤝": new Audio("https://www.myinstants.com/media/sounds/yeah-boy.mp3"),
+  "✊": new Audio("https://www.myinstants.com/media/sounds/anime-wow-sound-effect.mp3")
+};
+
+// Add post
+async function addPost(){
+  let text = document.getElementById("postText").value;
+  let imageFile = document.getElementById("postImage").files[0];
+  let imageUrl = "";
+
+  if(imageFile){
+    const storageRef = ref(storage, 'posts/' + Date.now() + '_' + imageFile.name);
+    await uploadBytes(storageRef, imageFile);
+    imageUrl = await getDownloadURL(storageRef);
+  }
+
+  await addDoc(collection(db,"posts"),{
+    text:text,
+    imageUrl:imageUrl,
+    timestamp:serverTimestamp(),
+    reactions: { "🪵":0, "❤️":0, "💔":0, "🤝":0, "✊":0 }
+  });
+
+  document.getElementById("postText").value="";
+  document.getElementById("postImage").value="";
+}
+
+// Emoji rain with multiple emojis and sounds
+function emojiRain(emoji){
+  let count = 30;
+  for(let i=0;i<count;i++){
+    let drop = document.createElement("div");
+    drop.className="emoji-drop";
+    drop.innerText = emoji;
+    drop.style.left = Math.random()*100+"vw";
+    drop.style.fontSize = (20+Math.random()*50)+"px";
+    drop.style.animationDuration = (Math.random()*2 + 2) + "s";
+    document.body.appendChild(drop);
+    setTimeout(()=>drop.remove(),4000);
+  }
+  if(sounds[emoji]){
+    sounds[emoji].currentTime=0;
+    sounds[emoji].play();
+  }
+}
+
+// Reaction click
+window.react = async function(postId, emoji){
+  emojiRain(emoji);
+  const postRef = doc(db,"posts",postId);
+  await updateDoc(postRef,{[`reactions.${emoji}`]: increment(1)});
+}
+
+// Real-time feed
+onSnapshot(collection(db,"posts"),(snapshot)=>{
+  feed.innerHTML="";
+  snapshot.docs.sort((a,b)=>b.data().timestamp?.seconds - a.data().timestamp?.seconds).forEach(docSnap=>{
+    let data = docSnap.data();
+    let postDiv = document.createElement("div");
+    postDiv.className="post";
+    postDiv.innerHTML=`
+      ${data.imageUrl?`<img src="${data.imageUrl}"/>`:""}
+      <div class="post-text">${data.text || ""}</div>
+      <div class="reactions">
+        <span onclick="react('${docSnap.id}','🪵')">🪵 ${data.reactions["🪵"]}</span>
+        <span onclick="react('${docSnap.id}','❤️')">❤️ ${data.reactions["❤️"]}</span>
+        <span onclick="react('${docSnap.id}','💔')">💔 ${data.reactions["💔"]}</span>
+        <span onclick="react('${docSnap.id}','🤝')">🤝 ${data.reactions["🤝"]}</span>
+        <span onclick="react('${docSnap.id}','✊')">✊ ${data.reactions["✊"]}</span>
+      </div>
+    `;
+    feed.appendChild(postDiv);
+  });
+});
+</script>
+</body>
+</html>
